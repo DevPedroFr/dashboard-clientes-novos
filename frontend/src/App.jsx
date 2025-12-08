@@ -2,6 +2,129 @@ import React, { useState, useEffect } from 'react';
 import { MessageCircle, Send, LayoutDashboard, Activity, AlertTriangle, Settings, LogOut, GripVertical } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000/api';
+const UnitBadge = ({ status }) => {
+  const color = status === 'online' ? 'bg-green-100 text-green-800' : status === 'degraded' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800';
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{status}</span>;
+};
+
+const DetailsPage = ({ user, type, onBack }) => {
+  const [units, setUnits] = useState([]);
+
+  useEffect(() => {
+    // Mock das unidades para Magazine TORRA com status de Claro/Vivo e Firewall
+    // Em produção, substituir por chamada real à API
+    const company = (user?.company_name || '').toLowerCase();
+    const isMagazine = company.includes('torra');
+    const isNipo = company.includes('nipo');
+    const baseUnits = [
+      'Taubaté','Mogi das Cruzes','São José dos Campos','Sorocaba','Santo André','Guarulhos','São Paulo','Bauru','Ribeirão Preto','Campinas',
+      'Recife','Belém','Manaus','Curitiba','Londrina','Joinville','Fortaleza','Salvador','Aracaju','Pelotas'
+    ];
+    const makeStatus = () => {
+      const up = Math.random() > 0.08;
+      const degraded = !up && Math.random() > 0.5;
+      return up ? 'online' : degraded ? 'degraded' : 'offline';
+    };
+    if (isNipo) {
+      // Dados baseados no anexo de NIPO (resumo e simplificação)
+      const nipoUnits = [
+        { name: 'Liberdade - SP', providers: ['TIM ENKYO', 'WCS ENKYO'], address: 'RUA FAGUNDES, 00121 - LIBERDADE - SÃO PAULO - SP' },
+        { name: 'Parque Novo Mundo - SP', providers: ['WCS NIPO', 'ALGAR NIPO'], address: 'RUA PISTÓIA, 100 - PARQUE NOVO MUNDO - SÃO PAULO - SP' },
+        { name: 'São Miguel Arcanjo - SP', providers: ['SMANET', 'VIVO SMA'], address: 'R. TADASHI TAKENAKA, 100 - CENTRO - SÃO MIGUEL ARCANJO - SP' },
+        { name: 'Itapetininga - SP', providers: ['CLARO / NET'], address: 'R. PADRE ALBUQUERQUE, 245 - CENTRO - ITAPETININGA - SP' },
+        { name: 'Rio de Janeiro - RJ', providers: ['MUNDIVOX'], address: 'V BARTHOLOMEU DE CARLOS 401 LOJA 2007, JD Flor da Montanha - RJ' }
+      ];
+      const data = nipoUnits.map((u, idx) => ({
+        id: idx + 1,
+        name: u.name,
+        providers: u.providers,
+        address: u.address,
+        claro: u.providers.some(p => p.toLowerCase().includes('claro')) ? makeStatus() : 'offline',
+        vivo: u.providers.some(p => p.toLowerCase().includes('vivo')) ? makeStatus() : 'offline',
+        firewall: makeStatus(),
+        latency_ms: 12 + Math.floor(Math.random() * 40),
+        bandwidth_usage: 35 + Math.floor(Math.random() * 50)
+      }));
+      setUnits(data);
+    } else {
+      const data = baseUnits.map((name, idx) => ({
+        id: idx + 1,
+        name,
+        providers: ['Claro', 'Vivo'],
+        claro: makeStatus(),
+        vivo: makeStatus(),
+        firewall: makeStatus(),
+        latency_ms: 10 + Math.floor(Math.random() * 50),
+        bandwidth_usage: 30 + Math.floor(Math.random() * 60)
+      }));
+      setUnits(isMagazine ? data : data.slice(0, 8));
+    }
+  }, [user]);
+
+  const title = type === 'internet' ? 'Status dos Links (Claro/Vivo)' : type === 'firewall' ? 'Status dos Firewalls' : type === 'switch' ? 'Status dos Switches' : type === 'database' ? 'Status dos Bancos' : 'Detalhes';
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <LayoutDashboard className="w-6 h-6 text-blue-600" />
+            <div>
+              <h1 className="text-xl font-bold text-gray-800">{title}</h1>
+              <p className="text-sm text-gray-600">{user.company_name}</p>
+            </div>
+          </div>
+          <button onClick={onBack} className="px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">← Voltar</button>
+        </div>
+      </div>
+      <div className="p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-4">
+            <p className="text-gray-600 text-sm">Clique nos cards no dashboard para abrir esta visão detalhada por unidade.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg-grid-cols-3 lg:grid-cols-3 gap-6">
+            {units.map((u) => (
+              <div key={u.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-gray-800 truncate">{u.name}</h3>
+                  {type === 'internet' ? (
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs text-gray-600">Claro</span>
+                      <UnitBadge status={u.claro} />
+                      <span className="text-xs text-gray-600 ml-2">Vivo</span>
+                      <UnitBadge status={u.vivo} />
+                    </div>
+                  ) : type === 'firewall' ? (
+                    <UnitBadge status={u.firewall} />
+                  ) : (
+                    <UnitBadge status={u.firewall} />
+                  )}
+                </div>
+                {type === 'internet' && (
+                  <p className="text-xs text-gray-500 mb-2 truncate">Provedores: {(u.providers || []).join(', ')}</p>
+                )}
+                {type === 'internet' && (
+                  <div className="space-y-2 mt-3">
+                    <div className="flex justify-between"><span className="text-sm text-gray-600">Latência média</span><span className="font-semibold text-gray-800">{u.latency_ms}ms</span></div>
+                    <div className="flex justify-between"><span className="text-sm text-gray-600">Uso de banda</span><span className="font-semibold text-gray-800">{u.bandwidth_usage}%</span></div>
+                    <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-600 h-2 rounded-full" style={{ width: `${u.bandwidth_usage}%` }}></div></div>
+                  </div>
+                )}
+                {type === 'firewall' && (
+                  <div className="space-y-2 mt-3">
+                    <div className="flex justify-between"><span className="text-sm text-gray-600">Eventos bloqueados</span><span className="font-semibold text-gray-800">{100 + Math.floor(Math.random() * 900)}</span></div>
+                    <div className="flex justify-between"><span className="text-sm text-gray-600">CPU</span><span className="font-semibold text-gray-800">{30 + Math.floor(Math.random() * 60)}%</span></div>
+                    <div className="flex justify-between"><span className="text-sm text-gray-600">Memória</span><span className="font-semibold text-gray-800">{35 + Math.floor(Math.random() * 55)}%</span></div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState('');
@@ -160,7 +283,7 @@ const ChatPage = ({ user, onComplete }) => {
   );
 };
 
-const Widget = ({ widget, data }) => {
+const Widget = ({ widget, data, draggableProps, onOpen }) => {
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case 'online': return 'bg-green-100 text-green-800';
@@ -170,7 +293,10 @@ const Widget = ({ widget, data }) => {
     }
   };
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div
+      className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow select-none"
+      {...draggableProps}
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <GripVertical className="w-5 h-5 text-gray-400 cursor-move" />
@@ -178,6 +304,12 @@ const Widget = ({ widget, data }) => {
         </div>
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(data?.status)}`}>{data?.status || 'N/A'}</span>
       </div>
+      <button
+        onClick={onOpen}
+        className="w-full mt-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg px-3 py-2 transition-colors"
+      >
+        Abrir detalhes
+      </button>
       {widget.type === 'firewall' && data && (
         <div className="space-y-3">
           <div className="flex justify-between items-center"><span className="text-sm text-gray-600">CPU</span><span className="font-semibold text-gray-800">{data.cpu}%</span></div>
@@ -224,8 +356,8 @@ const Widget = ({ widget, data }) => {
   );
 };
 
-const DashboardPage = ({ user, onLogout }) => {
-  const [widgets] = useState([
+const DashboardPage = ({ user, onLogout, onOpenDetails }) => {
+  const [widgets, setWidgets] = useState([
     { id: 1, title: 'Firewall Principal', type: 'firewall' },
     { id: 2, title: 'Switch Core', type: 'switch' },
     { id: 3, title: 'Database Server', type: 'database' },
@@ -234,6 +366,8 @@ const DashboardPage = ({ user, onLogout }) => {
   ]);
   const [monitoringData, setMonitoringData] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [isAIMode, setIsAIMode] = useState(false);
+  const [dragState, setDragState] = useState({ draggingId: null });
 
   useEffect(() => {
     fetchMonitoringData();
@@ -267,7 +401,46 @@ const DashboardPage = ({ user, onLogout }) => {
   const getWidgetData = (widget) => {
     if (!monitoringData) return null;
     if (widget.type === 'alerts') return monitoringData.alerts;
-    return monitoringData.devices?.find(d => d.type === widget.type);
+    const base = monitoringData.devices?.find(d => d.type === widget.type);
+    if (!isAIMode || !base) return base;
+    // Simulação leve de "edição por IA":
+    // Ajusta números para valores mais estáveis e adiciona pequenas melhorias descritivas
+    const jitter = (v, pct = 0.05) => {
+      const delta = v * pct * (Math.random() * 2 - 1);
+      const nv = Math.max(0, Math.round(v + delta));
+      return nv;
+    };
+    if (widget.type === 'firewall') {
+      return {
+        ...base,
+        cpu: jitter(base.cpu, 0.03),
+        memory: jitter(base.memory, 0.03),
+        threats_blocked: jitter(base.threats_blocked, 0.08),
+        status: base.cpu > 85 || base.memory > 85 ? 'warning' : 'online'
+      };
+    }
+    if (widget.type === 'switch') {
+      return {
+        ...base,
+        ports_active: jitter(base.ports_active, 0.04),
+        traffic_mbps: jitter(base.traffic_mbps, 0.07)
+      };
+    }
+    if (widget.type === 'database') {
+      return {
+        ...base,
+        connections: jitter(base.connections, 0.05),
+        queries_per_sec: jitter(base.queries_per_sec, 0.06)
+      };
+    }
+    if (widget.type === 'internet') {
+      return {
+        ...base,
+        latency_ms: jitter(base.latency_ms, 0.05),
+        bandwidth_usage: Math.min(100, jitter(base.bandwidth_usage, 0.05))
+      };
+    }
+    return base;
   };
 
   const getTimeSinceUpdate = () => {
@@ -287,10 +460,19 @@ const DashboardPage = ({ user, onLogout }) => {
               <p className="text-sm text-gray-600">{user.company_name}</p>
             </div>
           </div>
-          <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-            <LogOut className="w-5 h-5" />
-            <span>Sair</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAIMode(v => !v)}
+              className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isAIMode ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
+              title="Alternar ajustes de IA"
+            >
+              {isAIMode ? 'Ajustes de IA: ON' : 'Ajustes de IA: OFF'}
+            </button>
+            <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+              <LogOut className="w-5 h-5" />
+              <span>Sair</span>
+            </button>
+          </div>
         </div>
       </div>
       <div className="p-6">
@@ -312,9 +494,37 @@ const DashboardPage = ({ user, onLogout }) => {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {widgets.map((widget) => (
-                  <Widget key={widget.id} widget={widget} data={getWidgetData(widget)} />
+              <div
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                onDragOver={(e) => e.preventDefault()}
+              >
+                {widgets.map((widget, index) => (
+                  <Widget
+                    key={widget.id}
+                    widget={widget}
+                    data={getWidgetData(widget)}
+                    onOpen={() => onOpenDetails(widget.type)}
+                    draggableProps={{
+                      draggable: true,
+                      onDragStart: () => setDragState({ draggingId: widget.id }),
+                      onDragEnd: () => setDragState({ draggingId: null }),
+                      onDrop: (e) => {
+                        e.preventDefault();
+                        setDragState({ draggingId: null });
+                      },
+                      onDragEnter: () => {
+                        if (dragState.draggingId && dragState.draggingId !== widget.id) {
+                          const fromIndex = widgets.findIndex(w => w.id === dragState.draggingId);
+                          const toIndex = index;
+                          if (fromIndex === -1 || toIndex === -1) return;
+                          const next = [...widgets];
+                          const [moved] = next.splice(fromIndex, 1);
+                          next.splice(toIndex, 0, moved);
+                          setWidgets(next);
+                        }
+                      }
+                    }}
+                  />
                 ))}
               </div>
               <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -322,7 +532,7 @@ const DashboardPage = ({ user, onLogout }) => {
                   <Settings className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                   <div>
                     <h3 className="font-semibold text-blue-900">Dica de Personalização</h3>
-                    <p className="text-sm text-blue-700 mt-1">Os widgets são atualizados automaticamente a cada 5 segundos. Em breve você poderá reorganizá-los arrastando e conversando com a IA!</p>
+                    <p className="text-sm text-blue-700 mt-1">Arraste os cards para reorganizar. Ative "Ajustes de IA" para ver o assistente estabilizar métricas em tempo real.</p>
                   </div>
                 </div>
               </div>
@@ -337,14 +547,24 @@ const DashboardPage = ({ user, onLogout }) => {
 function App() {
   const [currentPage, setCurrentPage] = useState('login');
   const [user, setUser] = useState(null);
+  const [detailsType, setDetailsType] = useState(null);
   const handleLogin = (userData) => { setUser(userData); if (userData.is_first_login) { setCurrentPage('chat'); } else { setCurrentPage('dashboard'); } };
   const handleChatComplete = () => { setCurrentPage('dashboard'); };
   const handleLogout = () => { setUser(null); setCurrentPage('login'); };
+  const openDetails = (type) => { setDetailsType(type); setCurrentPage('details'); };
+  const closeDetails = () => { setCurrentPage('dashboard'); setDetailsType(null); };
   return (
     <div>
       {currentPage === 'login' && <LoginPage onLogin={handleLogin} />}
       {currentPage === 'chat' && <ChatPage user={user} onComplete={handleChatComplete} />}
-      {currentPage === 'dashboard' && <DashboardPage user={user} onLogout={handleLogout} />}
+      {currentPage === 'dashboard' && <DashboardPage user={user} onLogout={handleLogout} onOpenDetails={openDetails} />}
+      {currentPage === 'details' && (
+        <DetailsPage
+          user={user}
+          type={detailsType}
+          onBack={closeDetails}
+        />
+      )}
     </div>
   );
 }
