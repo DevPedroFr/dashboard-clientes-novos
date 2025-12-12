@@ -7,6 +7,9 @@ from .models import Company, User, DashboardPreference, MonitoringData
 from .serializers import *
 import random
 from datetime import datetime, timedelta
+import os
+from google import genai
+from google.genai import types
 
 @csrf_exempt
 @api_view(['POST'])
@@ -151,3 +154,120 @@ def get_preferences(request):
         })
     except (User.DoesNotExist, DashboardPreference.DoesNotExist):
         return Response({'layout': {}, 'widgets': []})
+
+@csrf_exempt
+@api_view(['POST'])
+def ai_assistant(request):
+    """
+    Conversational AI endpoint that enriches the prompt with current monitoring data
+    for the user's company and returns a response from Gemini.
+    """
+    user_id = request.data.get('user_id')
+    prompt = request.data.get('prompt') or request.data.get('message')
+
+    if not prompt:
+        return Response({'error': 'Prompt não informado'}, status=400)
+
+    try:
+        user = User.objects.get(id=user_id) if user_id else None
+    except User.DoesNotExist:
+        user = None
+
+    # Collect monitoring context: prefer database rows, fallback to mock generator
+    context_blocks = []
+    if user and user.company:
+        rows = list(MonitoringData.objects.filter(company=user.company).order_by('-timestamp')[:50])
+        if rows:
+            # Summarize rows into a compact JSON-like text
+            devices_summary = []
+            for r in rows:
+                devices_summary.append({
+                    'device_type': r.device_type,
+                    'device_name': r.device_name,
+                    'status': r.status,
+                    'metrics': r.metrics,
+                    'timestamp': r.timestamp.isoformat(),
+                })
+            context_blocks.append(f"Contexto de monitoramento (últimos {len(devices_summary)} registros):\n" + str(devices_summary))
+    
+    if not context_blocks:
+        # Fallback to mock_monitoring_data
+        mock = {
+            'devices': [
+                {
+                    'name': 'Firewall Principal', 'type': 'firewall', 'status': 'online',
+                },
+                {
+                    'name': 'Switch Core', 'type': 'switch', 'status': 'online',
+                },
+                {
+                    'name': 'Database Server', 'type': 'database', 'status': 'warning',
+                },
+                {
+                    'name': 'Link Internet Principal', 'type': 'internet', 'status': 'online',
+                }
+            ]
+        }
+        context_blocks.append("Contexto de monitoramento (mock):\n" + str(mock))
+
+    system_text = (
+        "Você é um agente de IA integrado à plataforma de dashboard de clientes da DKRLI. "
+        "Ajude os clientes a entender e visualizar os dados (Firewalls, Switches, Links de internet, APs e Banco de dados). "
+        "Nunca vaze dados sensíveis. Dê respostas claras, contextualizadas e acionáveis."
+    )
+
+    # Prepare Google GenAI client
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        return Response({'error': 'Chave GEMINI_API_KEY não configurada'}, status=500)
+
+    client = genai.Client(api_key=api_key)
+
+    contents = [
+        types.Content(role="user", parts=[types.Part.from_text(text=\
+            f"{system_text}\n\nContexto:\n" + "\n\n".join(context_blocks) + "\n\nPergunta do usuário:\n" + prompt
+        )])
+    ]
+
+    try:
+        result_stream = client.models.generate_content_stream(
+            model="gemini-2.5-pro",
+            contents=contents,
+            config=types.GenerateContentConfig()
+        )
+
+        # Aggregate streamed text into a single response
+        response_text = ""
+        for chunk in result_stream:
+            if getattr(chunk, 'text', None):
+                response_text += chunk.text
+
+        if not response_text:
+            # Fallback textual response based on prompt keywords
+            lower = prompt.lower()
+            if 'firewall' in lower:
+                response_text = 'Vou destacar status dos firewalls, eventos bloqueados, uso de CPU/memória e recomendações de tuning.'
+            elif 'switch' in lower:
+                response_text = 'Incluirei portas ativas, tráfego por interface e alertas de erros/CRC.'
+            elif 'banco' in lower or 'database' in lower:
+                response_text = 'Mostrarei conexões ativas, queries/seg, latência de consultas e possíveis gargalos.'
+            elif 'internet' in lower or 'link' in lower:
+                response_text = 'Exibirei latência, perda de pacotes, uso de banda e disponibilidade dos provedores.'
+            else:
+                response_text = 'Posso organizar seu dashboard com base nos dispositivos e métricas disponíveis. Diga o que deseja priorizar.'
+
+        return Response({
+            'response': response_text,
+            'timestamp': datetime.now().isoformat(),
+        })
+    except Exception as e:
+        # Graceful fallback on errors: return contextual canned response
+        fallback = 'Tive um problema ao gerar a resposta da IA. '
+        if context_blocks:
+            fallback += 'Com base no contexto atual, posso montar uma visão com status e métricas dos dispositivos. '
+        fallback += 'Descreva o que deseja ver (firewall, switches, banco, internet) e eu configuro os widgets.'
+        return Response({
+            'response': fallback,
+            'error': f'Falha na IA: {str(e)}',
+            'timestamp': datetime.now().isoformat(),
+        }, status=200)

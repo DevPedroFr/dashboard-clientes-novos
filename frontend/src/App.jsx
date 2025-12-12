@@ -198,6 +198,20 @@ const ChatPage = ({ user, onComplete }) => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [thinkingDots, setThinkingDots] = useState('');
+
+  useEffect(() => {
+    let interval;
+    if (loading) {
+      interval = setInterval(() => {
+        setThinkingDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+      }, 500);
+    } else {
+      setThinkingDots('');
+    }
+    return () => interval && clearInterval(interval);
+  }, [loading]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -206,18 +220,23 @@ const ChatPage = ({ user, onComplete }) => {
     setInput('');
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/chat/`, {
+      const response = await fetch(`${API_URL}/ai/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input, user_id: user.id })
+        body: JSON.stringify({ prompt: input, user_id: user.id })
       });
       const data = await response.json();
+      if (!response.ok && !data.response) {
+        throw new Error(data.error || 'Falha na IA');
+      }
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+      setError('');
       if (input.toLowerCase().includes('pronto') || input.toLowerCase().includes('finalizar')) {
         setTimeout(() => onComplete(), 2000);
       }
     } catch (err) {
       console.error('Erro ao enviar mensagem:', err);
+      setError('O assistente está com instabilidade. Mostrei uma resposta alternativa.');
       let response = 'Entendi! Vou configurar isso para você. O que mais gostaria de adicionar?';
       if (input.toLowerCase().includes('pronto') || input.toLowerCase().includes('finalizar')) {
         response = 'Perfeito! Seu dashboard está sendo configurado. Redirecionando...';
@@ -261,11 +280,19 @@ const ChatPage = ({ user, onComplete }) => {
           {loading && (
             <div className="flex justify-start">
               <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border border-gray-200">
-                <div className="flex gap-2">
+                <div className="text-sm text-gray-700">Assistente está pensando{thinkingDots}</div>
+                <div className="flex gap-2 mt-2">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                 </div>
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="flex justify-start">
+              <div className="bg-yellow-50 px-6 py-4 rounded-2xl shadow-sm border border-yellow-200 text-yellow-800 text-sm">
+                {error}
               </div>
             </div>
           )}
@@ -356,7 +383,7 @@ const Widget = ({ widget, data, draggableProps, onOpen }) => {
   );
 };
 
-const DashboardPage = ({ user, onLogout, onOpenDetails }) => {
+const DashboardPage = ({ user, onLogout, onOpenDetails, onOpenAI }) => {
   const [widgets, setWidgets] = useState([
     { id: 1, title: 'Firewall Principal', type: 'firewall' },
     { id: 2, title: 'Switch Core', type: 'switch' },
@@ -462,6 +489,13 @@ const DashboardPage = ({ user, onLogout, onOpenDetails }) => {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={onOpenAI}
+              className="px-4 py-2 rounded-lg transition-colors text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+              title="Chamar assistente de IA"
+            >
+              Chamar IA
+            </button>
+            <button
               onClick={() => setIsAIMode(v => !v)}
               className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isAIMode ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
               title="Alternar ajustes de IA"
@@ -553,11 +587,12 @@ function App() {
   const handleLogout = () => { setUser(null); setCurrentPage('login'); };
   const openDetails = (type) => { setDetailsType(type); setCurrentPage('details'); };
   const closeDetails = () => { setCurrentPage('dashboard'); setDetailsType(null); };
+  const openAI = () => { setCurrentPage('chat'); };
   return (
     <div>
       {currentPage === 'login' && <LoginPage onLogin={handleLogin} />}
       {currentPage === 'chat' && <ChatPage user={user} onComplete={handleChatComplete} />}
-      {currentPage === 'dashboard' && <DashboardPage user={user} onLogout={handleLogout} onOpenDetails={openDetails} />}
+      {currentPage === 'dashboard' && <DashboardPage user={user} onLogout={handleLogout} onOpenDetails={openDetails} onOpenAI={openAI} />}
       {currentPage === 'details' && (
         <DetailsPage
           user={user}
